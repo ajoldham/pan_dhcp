@@ -17,32 +17,42 @@ fwhost = ""
 fwkey = ""
 
 #Make call to firewall to get XML DHCP lease information
-palocall = 'https://' + fwhost + '/api?type=op&cmd=<show><dhcp><server><lease>all</lease></server></dhcp></show>&key=' + fwkey
-r = requests.get(palocall, verify=False)
+values = {'type': 'op', 'cmd': '<show><dhcp><server><lease>all</lease></server></dhcp></show>', 'key': fwkey}
+palocall = 'https://%s/api/' % (fwhost)
+r = requests.post(palocall, data=values, verify=False)
 
 #Convert the response from the firewall to an ElementTree to parse as XML
 tree = ET.fromstring(r.text)
 
 #Create an XML string to hold the firewall UserID update information
-fwxml = '<uid-message><version>1.0</version><type>update</type><payload><login>\n'
+fwxml = '<uid-message>\n'
+fwxml = fwxml + '\t<version>1.0</version>\n'
+fwxml = fwxml + '\t<type>update</type>\n'
+fwxml = fwxml + '\t<payload>\n'
+fwxml = fwxml + '\t\t<login>\n'
 
 #Parse the IP and Hostname information from the DHCP lease data and add it to the firewall XML update string
-for lease in tree[0][0].findall('entry'):
 
-  #We really want a hostname if possible, so we're going to look for that in the DHCP lease information first.
-  if lease.find('hostname') is not None:
-    ip = lease.find('ip').text
-    host = lease.find('hostname').text
-    fwxml = fwxml + '<entry name="' + host + '" ip="' + ip + '" timeout="0"></entry>\n'
+for interface in tree.find('result').findall('interface'):
+  for lease in interface.findall('entry'):
 
-  #If the hostname is not available, we want to use the MAC address instead
-  else:
-    ip = lease.find('ip').text
-    host = lease.find('mac').text
-    fwxml = fwxml + '<entry name="' + host + '" ip="' + ip + '" timeout="0"></entry>\n'
+    #We really want a hostname if possible, so we're going to look for that in the DHCP lease information first.
+    if lease.find('hostname') is not None:
+      ip = lease.find('ip').text
+      mac = lease.find('mac').text
+      host = lease.find('hostname').text
+      fwxml = fwxml + '\t\t\t<entry name="' + host + '-' + mac + '" ip="' + ip + '" timeout="0"></entry>\n'
+
+    #If the hostname is not available, we want to use the MAC address instead
+    else:
+      ip = lease.find('ip').text
+      mac = lease.find('mac').text
+      fwxml = fwxml + '\t\t\t<entry name="' + mac + '" ip="' + ip + '" timeout="0"></entry>\n'
 
 #Close out the firewall XML update sring
-fwxml = fwxml + '</login></payload></uid-message></uid-message>'
+fwxml = fwxml + '\t\t</login>\n'
+fwxml = fwxml + '\t</payload>\n'
+fwxml = fwxml + '</uid-message>\n'
 
 #Convert the XML update to a memory file so we can upload it to the firewall as a file post (this avoids the 2048-bit limit imposed by a GET)
 fwfile = open('fwupdate.xml', 'w')
